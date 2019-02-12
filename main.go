@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	_ "net/http/pprof"
+	"github.com/buaazp/fasthttprouter"
 
 	"github.com/satori/go.uuid"
 	"github.com/valyala/fasthttp"
@@ -18,55 +18,33 @@ var s = &StorageMu{
 }
 
 func main() {
-	// go http.ListenAndServe(":6060", nil)
-	log.Fatal(fasthttp.ListenAndServe(":8080", Handler))
-}
-
-var (
-	notFoundMsg   = []byte(`{"error":"not found"}`)
-	errorMsg      = []byte(`{"error":"invalid data"}`)
-	invalidMethod = []byte(`{"error":"invalid method"}`)
-)
-
-func Handler(ctx *fasthttp.RequestCtx) {
-	if ctx.IsGet() {
-		id, err := uuid.FromString(string(ctx.RequestURI()[1:]))
+	router := fasthttprouter.New()
+	router.GET("/:id", func(ctx *fasthttp.RequestCtx) {
+		id, err := uuid.FromString(ctx.UserValue("id").(string))
 		if err != nil {
-			ctx.Error("invalid UUID format", http.StatusBadRequest)
+			ctx.Error(`{"error":"invalid data"}`, http.StatusBadRequest)
 			return
 		}
-		GetHandler(ctx, id)
-		return
-	}
-	if ctx.IsPost() {
-		PostHandler(ctx)
-		return
-	}
-	ctx.SetBody(invalidMethod)
-	ctx.SetStatusCode(fasthttp.StatusMethodNotAllowed)
-}
-
-func PostHandler(ctx *fasthttp.RequestCtx) {
-	var m Model
-	if err := json.Unmarshal(ctx.Request.Body(), &m); err != nil {
-		ctx.SetBody(errorMsg)
-		ctx.SetStatusCode(fasthttp.StatusBadRequest)
-		return
-	}
-	s.Set(m)
-	ctx.SetStatusCode(fasthttp.StatusNoContent)
-}
-
-func GetHandler(ctx *fasthttp.RequestCtx, id uuid.UUID) {
-	ctx.SetContentType("application/json")
-	if m, ok := s.Get(id); ok {
-		b, _ := json.Marshal(m)
-		ctx.SetStatusCode(fasthttp.StatusOK)
-		ctx.SetBody(b)
-		return
-	}
-	ctx.SetBody(notFoundMsg)
-	ctx.SetStatusCode(fasthttp.StatusNotFound)
+		ctx.SetContentType("application/json")
+		if m, ok := s.Get(id); ok {
+			b, _ := json.Marshal(m)
+			ctx.SetStatusCode(fasthttp.StatusOK)
+			ctx.SetBody(b)
+			return
+		}
+		ctx.Error(`{"error":"not found"}`, http.StatusNotFound)
+	})
+	router.POST("/", func(ctx *fasthttp.RequestCtx) {
+		var m Model
+		if err := json.Unmarshal(ctx.Request.Body(), &m); err != nil {
+			ctx.SetBody([]byte(`{"error":"invalid data"}`))
+			ctx.SetStatusCode(fasthttp.StatusBadRequest)
+			return
+		}
+		s.Set(m)
+		ctx.SetStatusCode(fasthttp.StatusNoContent)
+	})
+	log.Fatal(fasthttp.ListenAndServe(":8080", router.Handler))
 }
 
 type Model struct {
