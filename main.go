@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"log"
 	"net/http"
@@ -8,7 +9,6 @@ import (
 	"time"
 
 	"github.com/buaazp/fasthttprouter"
-
 	"github.com/satori/go.uuid"
 	"github.com/valyala/fasthttp"
 )
@@ -27,7 +27,10 @@ func main() {
 		}
 		ctx.SetContentType("application/json")
 		if m, ok := s.Get(id); ok {
-			b, _ := json.Marshal(m)
+			b, err := json.Marshal(m)
+			if err != nil {
+				panic(err)
+			}
 			ctx.SetStatusCode(fasthttp.StatusOK)
 			ctx.SetBody(b)
 			return
@@ -47,10 +50,37 @@ func main() {
 	log.Fatal(fasthttp.ListenAndServe(":8080", router.Handler))
 }
 
+const layout = "2006-01-02 15:04:05"
+
+type TS time.Time
+
+func (t TS) String() string {
+	return time.Time(t).Format(layout)
+}
+
+func (t TS) MarshalJSON() ([]byte, error) {
+	s := time.Time(t).Format(layout)
+	v := []byte(s)
+	out := make([]byte, len(v)+2)
+	out[0] = byte('"')
+	copy(out[1:len(v)+1], v)
+	out[len(v)+1] = byte('"')
+	return out, nil
+}
+
+func (t *TS) UnmarshalJSON(v []byte) (err error) {
+	tm, err := time.Parse(layout, string(bytes.Trim(v, `""`)))
+	if err != nil {
+		return
+	}
+	*t = TS(tm)
+	return
+}
+
 type Model struct {
 	Id        uuid.UUID `json:"id"`
 	Name      string    `json:"name"`
-	Timestamp time.Time `json:"timestamp"`
+	Timestamp TS        `json:"created"`
 }
 
 type StorageMu struct {
